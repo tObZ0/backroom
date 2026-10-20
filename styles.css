@@ -485,3 +485,11 @@ html, body { overflow-x: clip; }
   .hero-art { margin-bottom: 66px; }
   .scroll-cue { bottom: -6px; }
 }
+
+/* nav dividers sit outside each link, so the red underline spans only the word */
+.bar nav a + a { margin-left: 30px; }
+.bar nav a + a::before { position: absolute; left: -19px; top: 4px; margin: 0; }
+@media (max-width: 760px) {
+  .bar nav a + a { margin-left: 0; }
+  .bar nav a + a::before { content: none; }
+}
