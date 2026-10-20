@@ -399,6 +399,25 @@ function reveal() {
   }), { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
   els.forEach((e) => revealObs.observe(e));
 }
+// Doors open with the scroll. A door at the top of a page starts shut and opens
+// as you scroll down; any other door opens as it comes up into view.
+// --p runs from 0 (shut) to 1 (open) and drives every part of the drawing in CSS.
+let doorFrame = 0;
+function doorScroll() {
+  doorFrame = 0;
+  const vh = innerHeight;
+  document.querySelectorAll(".door-wrap").forEach((w) => {
+    let p;
+    if (REDUCED) p = 1;
+    else if (w.closest(".hero, .token-hero")) p = scrollY / (vh * (innerWidth < 900 ? 0.16 : 0.3));
+    else { const r = w.getBoundingClientRect(); p = (vh - r.top - r.height * 0.15) / (vh * 0.55); }
+    w.style.setProperty("--p", Math.max(0, Math.min(1, p)).toFixed(3));
+  });
+}
+const queueDoors = () => { if (!doorFrame) doorFrame = requestAnimationFrame(doorScroll); };
+addEventListener("scroll", queueDoors, { passive: true });
+addEventListener("resize", queueDoors);
+
 function setCount(el, n) {
   if (!el || !Number.isFinite(n)) return;
   el.dataset.to = n;
@@ -489,7 +508,7 @@ function tokenTeaser() {
       <p>${live ? "The Backroom's token, live on Robinhood Chain. Its own case file is one click away, with the same checks as every other token." : "The Backroom's token isn't live yet. When it launches, its contract address goes here, right next to its own case file."}</p>
       <div class="actions left">${live ? `<a class="btn light" href="#/room/rh/${TOKEN.address}">Open $${esc(TOKEN.symbol)}'s case</a>` : ""}<a class="btn ghost light" href="#/token">About $${esc(TOKEN.symbol)}</a></div>
     </div>
-    <div class="rt-art" aria-hidden="true">${doorArt("t")}</div>
+    <div class="rt-art door-wrap" aria-hidden="true">${doorArt("t")}</div>
   </div></section>`;
 }
 
@@ -521,7 +540,7 @@ function home() {
         </form>
         <div class="chips"><span>Or try</span>${SAMPLES.map((s, i) => `<button type="button" class="chip" data-i="${i}">${s.label}</button>`).join("")}</div>
       </div>
-      <div class="hero-art" aria-hidden="true">${doorArt("h")}</div>
+      <div class="hero-art door-wrap" aria-hidden="true">${doorArt("h")}<div class="scroll-cue"><span>Scroll to open the door</span><i></i></div></div>
     </section>
 
     <div class="ticker" aria-hidden="true"><div class="track" id="track">${tickerRun("Every case checks")}${tickerRun("Every case checks")}</div></div>
@@ -912,7 +931,7 @@ async function tokenPage() {
     <section class="page-hero token-hero">
       <div><div class="eyebrow">The token</div><h1 class="display">$${sym}</h1>
         <p class="lede">${live ? `The Backroom's token on Robinhood Chain. It gets the same case file as every other token, and anyone can open it.` : `The Backroom's token. It isn't live yet, and this page is where its one real address will appear.`}</p></div>
-      <div class="token-art" aria-hidden="true">${doorArt("k")}</div>
+      <div class="token-art door-wrap" aria-hidden="true">${doorArt("k")}</div>
     </section>
     ${live ? `
       <div class="ca rv"><span class="label">Contract address · Robinhood Chain</span><code>${TOKEN.address}</code><button class="btn ghost sm" id="copyCa">Copy</button></div>
@@ -963,7 +982,7 @@ if (!HAS_KECCAK) {
   document.getElementById("view").innerHTML = '<p class="err">Could not load the hashing library. Check your connection and reload.</p>';
 } else {
   // anything a page adds later (results, rows) gets its scroll reveal too
-  new MutationObserver(() => reveal()).observe($("#view"), { childList: true, subtree: true });
+  new MutationObserver(() => { reveal(); doorScroll(); }).observe($("#view"), { childList: true, subtree: true });
   $("#menuBtn")?.addEventListener("click", () => setMenu(!document.body.classList.contains("menu-open")));
   addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
   window.addEventListener("hashchange", route);

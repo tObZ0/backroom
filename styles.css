@@ -459,3 +459,29 @@ main, .bar, .foot { max-width: 1120px; }
 
 /* decorative glow and full-bleed bands may reach past the edge; never let the page scroll sideways */
 html, body { overflow-x: clip; }
+
+/* ===== doors open with the scroll (replaces the timed swing) ===== */
+.door-wrap { --p: 0; position: relative; }
+.door-wrap .d-door { animation: none; transform: scaleX(calc(1.78 - .78 * var(--p))); transition: transform .14s linear; }
+.door-wrap .d-knob { animation: none; transform: translateX(calc(68px * (1 - var(--p)))); transition: transform .14s linear; }
+.door-wrap .d-light { animation: none; opacity: calc(.18 + .82 * var(--p)); }
+.door-wrap .d-glow { animation: none; opacity: var(--p); transform: scale(calc(.55 + .45 * var(--p))); transition: opacity .2s linear, transform .2s linear; }
+.door-wrap .d-spill { animation: none; opacity: var(--p); transform: scaleY(calc(.15 + .85 * var(--p))); transition: opacity .2s linear, transform .2s linear; }
+.door-wrap .d-motes { opacity: var(--p); }
+
+/* the hint under a shut door; it fades as soon as the door starts to move */
+.scroll-cue { position: absolute; left: 50%; bottom: -10px; transform: translate(-50%, 100%); display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: calc(1 - var(--p) * 4); pointer-events: none; font-family: var(--cond); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--ink2); white-space: nowrap; transition: opacity .2s linear; animation: cueIn 1s var(--ease) 1s both; }
+.scroll-cue i { width: 1.5px; height: 30px; background: linear-gradient(var(--crimson), transparent); animation: cueLine 1.6s ease-in-out infinite; transform-origin: top; }
+@keyframes cueIn { from { opacity: 0; } }
+@keyframes cueLine { 0% { transform: scaleY(0); } 50% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
+@media (max-width: 900px) { .scroll-cue { bottom: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .door-wrap { --p: 1; }
+  .scroll-cue { display: none; }
+}
+@media (max-width: 900px) {
+  /* room under the shut door for its scroll cue, so it never sits on the live pill */
+  .hero-art { margin-bottom: 66px; }
+  .scroll-cue { bottom: -6px; }
+}
