@@ -20,6 +20,10 @@ const SAMPLES = [
   { label: "PENGU", chain: "rh", addr: "0x74BE72AFFAFbC8de30F0C11247814036314D625f" },
 ];
 
+// The project token. Leave the address empty until launch: the homepage and the
+// token page then say it isn't live. Set it (and buyUrl, if any) and redeploy.
+const TOKEN = { symbol: "ROOM", address: "", buyUrl: "" };
+
 // Privileged functions worth knowing about. Selectors are computed from the
 // signatures at load time so there is no hand-copied hex to get wrong.
 const RULES = [
@@ -361,34 +365,88 @@ function setNav(name, title) {
 const stampDate = (t) => new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
 const VERDICT = { low: "Cleared", mid: "Caution", high: "Flagged" };
 
-function home() {
-  setNav("home");
-  $("#view").innerHTML = `
-    <div class="front">
-      <h1>What are you bringing into the <em>Backroom?</em></h1>
-      <p class="lede">Hand over a Robinhood Chain token. We read the chain, open a case file, and tell you in plain words what the deployer can still do.</p>
-      <form id="f" class="slip">
-        <div class="slip-head">
-          <span class="label">Intake form 01</span>
-          <div class="tabs">
-            <button type="button" class="tab on" data-mode="paste">New case</button>
-            <button type="button" class="tab" data-mode="room">Existing case</button>
-          </div>
-        </div>
-        <div class="slip-body">
-          <div class="row">
-            <label class="field" id="chainField"><span class="label">Chain</span><select id="chain">${chainOptions()}</select></label>
-            <label class="field grow"><span class="label" id="addrLabel">Contract address</span>
-              <input id="addr" placeholder="0x…" autocomplete="off" spellcheck="false" /></label>
-            <button class="btn">Open case</button>
-          </div>
-          <p class="err" id="err"></p>
-        </div>
-      </form>
-      <div class="chips"><span>Or try</span>${SAMPLES.map((s, i) => `<button type="button" class="chip" data-i="${i}">${s.label}</button>`).join("")}</div>
-      <div class="below"><a href="#/compare">Compare two tokens side by side</a><a href="#/how">What we check, and what we can't</a></div>
-    </div>`;
+// ---------- motion ----------
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const compact = (n) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: n >= 1e9 ? 2 : 1 }).format(n);
 
+function countUp(el) {
+  const to = Number(el.dataset.to);
+  if (!Number.isFinite(to) || el.dataset.done) return;
+  el.dataset.done = "1";
+  if (REDUCED) { el.textContent = compact(to); return; }
+  const t0 = performance.now(), ms = 1500;
+  const tick = (t) => {
+    const k = Math.min(1, (t - t0) / ms);
+    el.textContent = compact(to * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// sections with .rv fade up as they scroll into view; counters inside them start then
+let revealObs;
+function reveal() {
+  const els = document.querySelectorAll(".rv:not(.in)");
+  if (REDUCED || !("IntersectionObserver" in window)) {
+    els.forEach((e) => { e.classList.add("in"); e.querySelectorAll("[data-to]").forEach(countUp); });
+    return;
+  }
+  revealObs ||= new IntersectionObserver((entries) => entries.forEach((en) => {
+    if (!en.isIntersecting) return;
+    en.target.classList.add("in");
+    en.target.querySelectorAll("[data-to]").forEach(countUp);
+    revealObs.unobserve(en.target);
+  }), { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+  els.forEach((e) => revealObs.observe(e));
+}
+function setCount(el, n) {
+  if (!el || !Number.isFinite(n)) return;
+  el.dataset.to = n;
+  if (el.closest(".rv")?.classList.contains("in")) countUp(el);
+}
+
+// live numbers from Robinhood Chain, cached for a minute
+let pulse = null;
+function chainPulse() {
+  if (pulse && Date.now() - pulse.at < 60000) return Promise.resolve(pulse);
+  return getJson(CHAINS.rh.api + "/stats").then((s) => (pulse = {
+    at: Date.now(),
+    blocks: Number(s.total_blocks), txs: Number(s.total_transactions),
+    addrs: Number(s.total_addresses), today: Number(s.transactions_today),
+  })).catch(() => null);
+}
+
+// ---------- the door, drawn large and swinging open ----------
+function doorArt(id = "d") {
+  const S = 7, gx = 260 - 32 * S, gy = 476 - 60 * S;
+  const X = (u) => (gx + u * S).toFixed(1), Y = (v) => (gy + v * S).toFixed(1);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const motes = Array.from({ length: 16 }, () => {
+    const x = 120 + rnd() * 300, y = 300 + rnd() * 240, r = (1 + rnd() * 2.2).toFixed(1);
+    return `<circle class="d-mote" cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${r}" style="--md:${(rnd() * 6).toFixed(2)}s;--mt:${(5 + rnd() * 5).toFixed(2)}s"/>`;
+  }).join("");
+  return `<svg class="door-art" viewBox="0 0 520 560" role="presentation">
+    <defs>
+      <linearGradient id="${id}L" x1="0" x2="1"><stop offset="0" stop-color="#e3283a"/><stop offset="1" stop-color="#a3121f"/></linearGradient>
+      <linearGradient id="${id}S" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c4142a" stop-opacity=".5"/><stop offset="1" stop-color="#c4142a" stop-opacity="0"/></linearGradient>
+      <radialGradient id="${id}G"><stop offset="0" stop-color="#d81f33" stop-opacity=".42"/><stop offset="1" stop-color="#d81f33" stop-opacity="0"/></radialGradient>
+    </defs>
+    <ellipse class="d-glow" cx="${X(41)}" cy="${Y(34)}" rx="250" ry="260" fill="url(#${id}G)"/>
+    <path class="d-spill" d="M${X(34)} ${Y(60)} L${X(48)} ${Y(60)} L${+X(48) + 90} 560 L${+X(34) - 260} 560 Z" fill="url(#${id}S)"/>
+    <rect x="${X(10)}" y="${Y(6)}" width="${44 * S}" height="${54 * S}" fill="var(--ink)"/>
+    <rect class="d-light" x="${X(34)}" y="${Y(12)}" width="${14 * S}" height="${48 * S}" fill="url(#${id}L)"/>
+    <path class="d-door" d="M${X(16)} ${Y(12)} L${X(34)} ${Y(14)} L${X(34)} ${Y(58)} L${X(16)} ${Y(60)} Z" fill="var(--paper)"/>
+    <rect class="d-knob" x="${X(28.5)}" y="${Y(34)}" width="${2.6 * S}" height="${2.6 * S}" fill="var(--ink)"/>
+    <rect x="${X(4)}" y="${Y(58)}" width="${56 * S}" height="${3 * S}" fill="var(--ink)"/>
+    <g class="d-motes">${motes}</g>
+  </svg>`;
+}
+
+const TICKER = ["Mint", "Blacklist", "Upgrade", "Fees", "Pause", "Trading switch", "Limits", "Exemptions", "Proxy", "Owner's bag", "Holders", "Lockers", "Burns"];
+const tickerRun = (lead) => `<span class="tk-lead">${lead}</span>` + TICKER.map((t) => `<span>${t}</span>`).join("");
+
+function bindIntake() {
   let mode = "paste";
   document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
     mode = t.dataset.mode;
@@ -413,6 +471,126 @@ function home() {
     if (!isAddr(v)) return ($("#err").textContent = "That isn't a contract address (0x + 40 hex characters).");
     location.hash = `#/room/${$("#chain").value}/${v}`;
   };
+}
+
+function tokenTeaser() {
+  const live = isAddr(TOKEN.address);
+  return `<section class="room-token rv"><div class="rt-inner">
+    <div class="rt-copy">
+      <div class="eyebrow light">The token</div>
+      <h2 class="display-2">$${esc(TOKEN.symbol)}</h2>
+      <p>${live ? "The Backroom's token, live on Robinhood Chain. Its own case file is one click away, with the same checks as every other token." : "The Backroom's token isn't live yet. When it launches, its contract address goes here, right next to its own case file."}</p>
+      <div class="actions left">${live ? `<a class="btn light" href="#/room/rh/${TOKEN.address}">Open $${esc(TOKEN.symbol)}'s case</a>` : ""}<a class="btn ghost light" href="#/token">About $${esc(TOKEN.symbol)}</a></div>
+    </div>
+    <div class="rt-art" aria-hidden="true">${doorArt("t")}</div>
+  </div></section>`;
+}
+
+function home() {
+  setNav("home");
+  $("#view").innerHTML = `
+    <section class="hero" id="hero">
+      <div class="hero-copy">
+        <a class="pulse" href="#/line"><i></i><span id="pulse">Live on Robinhood Chain</span></a>
+        <h1 class="display">What are you bringing into the <em>Backroom?</em></h1>
+        <p class="lede">Hand over a Robinhood Chain token. We read the chain, open a case file, and tell you in plain words what the deployer can still do.</p>
+        <form id="f" class="slip">
+          <div class="slip-head">
+            <span class="label">Intake form 01</span>
+            <div class="tabs">
+              <button type="button" class="tab on" data-mode="paste">New case</button>
+              <button type="button" class="tab" data-mode="room">Existing case</button>
+            </div>
+          </div>
+          <div class="slip-body">
+            <div class="row">
+              <label class="field" id="chainField"><span class="label">Chain</span><select id="chain">${chainOptions()}</select></label>
+              <label class="field grow"><span class="label" id="addrLabel">Contract address</span>
+                <input id="addr" placeholder="0x…" autocomplete="off" spellcheck="false" /></label>
+              <button class="btn">Open case</button>
+            </div>
+            <p class="err" id="err"></p>
+          </div>
+        </form>
+        <div class="chips"><span>Or try</span>${SAMPLES.map((s, i) => `<button type="button" class="chip" data-i="${i}">${s.label}</button>`).join("")}</div>
+      </div>
+      <div class="hero-art" aria-hidden="true">${doorArt("h")}</div>
+    </section>
+
+    <div class="ticker" aria-hidden="true"><div class="track" id="track">${tickerRun("Every case checks")}${tickerRun("Every case checks")}</div></div>
+
+    <section class="demo rv">
+      <div class="demo-copy">
+        <div class="eyebrow">How a case comes together</div>
+        <h2 class="display-2">Ten seconds from address to verdict.</h2>
+        <ol class="demo-steps">
+          <li><b>Bring it in.</b> Paste a token address. It gets a case number that's the same for everyone.</li>
+          <li><b>Watch the work.</b> Eight agents read the bytecode, the owner, the holders and the pools, live.</li>
+          <li><b>Take the verdict.</b> Every finding is filed as an exhibit, and the case gets its stamp.</li>
+        </ol>
+        <a class="btn" href="#/room/rh/${SAMPLES[0].addr}">Watch a real case</a>
+      </div>
+      <div class="demo-file" role="img" aria-label="An example case file filling in">
+        <div class="df-head"><span>Case BR-00000</span><span class="df-tag">Example</span></div>
+        <ul class="df-checks">${["Bytecode read", "Proxy checked", "Owner found", "Kept powers scanned", "Holders sorted"].map((t, i) => `<li style="--d:${i}">${t}</li>`).join("")}</ul>
+        <div class="df-ex" style="--d:5"><b>A</b><span>Owner can mint new tokens</span><em class="sev high">high</em></div>
+        <div class="df-ex" style="--d:6"><b>B</b><span>One wallet holds 31% of supply</span><em class="sev high">high</em></div>
+        <div class="df-ex" style="--d:7"><b>C</b><span>Liquidity sits in a locker</span><em class="sev low">in favour</em></div>
+        <div class="df-stamp">Flagged</div>
+      </div>
+    </section>
+
+    <section class="rv">
+      <div class="sechead"><h2>What every case checks</h2><span>${RULES.length + EXTRA_CHECKS.length} checks · ${SIG_COUNT} signatures</span></div>
+      <div class="xgrid">${[...RULES, ...EXTRA_CHECKS].map((l, i) => `
+        <article class="xcard rv" style="--d:${i % 4}">
+          <div class="xno">Exhibit<b>${String.fromCharCode(65 + i)}</b></div>
+          <span class="sev ${l.sev}">${l.sev}</span>
+          <h3>${esc(l.title)}</h3><p>${esc(l.why)}</p>
+        </article>`).join("")}</div>
+    </section>
+
+    <section class="numbers rv">
+      <div class="sechead"><h2>Live from Robinhood Chain</h2><span>read from the explorer just now</span></div>
+      <div class="nums">
+        <div><b id="n-blocks">—</b><span>blocks</span></div>
+        <div><b id="n-txs">—</b><span>transactions</span></div>
+        <div><b id="n-addrs">—</b><span>addresses</span></div>
+        <div><b id="n-today">—</b><span>transactions today</span></div>
+      </div>
+    </section>
+
+    ${tokenTeaser()}
+
+    <section class="closer rv">
+      <h2 class="display">Bring it <em>inside.</em></h2>
+      <p class="lede">Every case is free and read-only, and takes about ten seconds.</p>
+      <button class="btn big" id="toTop">Open a case</button>
+    </section>`;
+
+  bindIntake();
+  $("#toTop").onclick = () => { scrollTo({ top: 0, behavior: REDUCED ? "auto" : "smooth" }); setTimeout(() => $("#addr")?.focus(), REDUCED ? 0 : 500); };
+
+  chainPulse().then((p) => {
+    if (!p || !$("#n-blocks")) return;
+    setCount($("#n-blocks"), p.blocks); setCount($("#n-txs"), p.txs);
+    setCount($("#n-addrs"), p.addrs); setCount($("#n-today"), p.today);
+    $("#pulse").textContent = "Live on Robinhood Chain · block " + p.blocks.toLocaleString("en");
+    // two identical halves, so the loop is seamless
+    const unit = tickerRun("Block " + p.blocks.toLocaleString("en")) + tickerRun("Every case checks");
+    $("#track").innerHTML = unit + unit;
+  });
+
+  // the door drifts a little with the pointer
+  const hero = $("#hero");
+  if (!REDUCED && matchMedia("(pointer: fine)").matches) {
+    hero.onpointermove = (e) => {
+      const r = hero.getBoundingClientRect();
+      hero.style.setProperty("--mx", ((e.clientX - r.left) / r.width - 0.5).toFixed(3));
+      hero.style.setProperty("--my", ((e.clientY - r.top) / r.height - 0.5).toFixed(3));
+    };
+    hero.onpointerleave = () => { hero.style.setProperty("--mx", 0); hero.style.setProperty("--my", 0); };
+  }
 }
 
 const chainOptions = (pick) => Object.entries(CHAINS).map(([k, c]) => `<option value="${k}"${k === pick ? " selected" : ""}>${c.name}</option>`).join("");
@@ -546,48 +724,6 @@ function renderReport(r) {
   $("#print").onclick = () => window.print();
 }
 
-function rooms() {
-  setNav("rooms", "Your cases");
-  const list = loadRooms();
-  $("#view").innerHTML = `<div class="eyebrow">Your cases</div><h1>Case files</h1>
-    <p class="lede">Kept only in this browser. Share a case link to show someone the same report.</p>
-    ${list.length ? roomList(list) + `<div class="actions"><button class="btn ghost" id="clear">Clear this list</button></div>`
-      : `<p class="hint">No cases yet. <a href="#/">Bring something in.</a></p>`}`;
-  $("#clear")?.addEventListener("click", () => {
-    try { localStorage.removeItem("backroom.rooms"); } catch {}
-    rooms();
-  });
-}
-
-function how() {
-  setNav("how", "How it works");
-  const levers = [...RULES, ...EXTRA_CHECKS];
-  $("#view").innerHTML = `<div class="how">
-    <div class="eyebrow">How it works</div><h1>Inside the workshop</h1>
-    <p class="lede">${STAGES.length} inspection agents, ${levers.length} checks, ${Object.keys(CHAINS).length} chains. Every line in a job log is a real read against the chain.</p>
-
-    <section>
-      <div class="sechead"><h2>How a job runs</h2><span>about ten seconds</span></div>
-      <div class="steps">
-        <div><h3>Bring it in</h3><p>Paste an address. It gets a ticket number that's the same for everyone, so a case link always opens the same case.</p></div>
-        <div><h3>Watch the work</h3><p>Bytecode, proxy slots, token metadata, owner, owner's bag and where the liquidity lives, read live.</p></div>
-        <div><h3>Take the report</h3><p>A risk score, plain-English findings, and a link to the verified source so you can check our work.</p></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="sechead"><h2>What the agents look for</h2><span>${SIG_COUNT} function signatures</span></div>
-      <div class="levers">${levers.map((l) => `
-        <div class="lever"><span class="sev ${l.sev}">${l.sev.toUpperCase()}</span>
-          <h3>${esc(l.title)}</h3><p>${esc(l.why)}</p></div>`).join("")}</div>
-    </section>
-
-    <section>
-      <div class="sechead"><h2>Limits</h2></div>
-      <p class="lede" style="font-size:15px">Selector matching can miss renamed functions and can't see what a function enforces internally (e.g. a fee cap). LP held in a locker contract shows as "not burned". On Robinhood Chain, pools and lockers are recognised by the names the explorer gives them, so an unlabelled pool counts as an ordinary contract. Treat a clean report as a starting point, not a guarantee.</p>
-    </section></div>`;
-}
-
 function compare(a, b) {
   setNav("compare", "Compare");
   const [ca, aa] = a || ["rh", ""];
@@ -653,19 +789,176 @@ function compare(a, b) {
   });
 }
 
+function rooms() {
+  setNav("rooms", "Your cases");
+  const list = loadRooms();
+  $("#view").innerHTML = `
+    <section class="page-hero"><div class="eyebrow">Your cases</div><h1 class="display">The case<br><em>files.</em></h1>
+      <p class="lede">Kept only in this browser. Share a case link and anyone gets the same case, read fresh from the chain.</p></section>
+    <div class="rv">${list.length ? roomList(list) + `<div class="actions left"><button class="btn ghost" id="clear">Clear this list</button></div>`
+      : `<p class="hint">No cases yet. <a href="#/">Bring something in.</a></p>`}</div>`;
+  $("#clear")?.addEventListener("click", () => {
+    try { localStorage.removeItem("backroom.rooms"); } catch {}
+    rooms();
+  });
+}
+
+function how() {
+  setNav("how", "How it works");
+  const levers = [...RULES, ...EXTRA_CHECKS];
+  $("#view").innerHTML = `
+    <section class="page-hero"><div class="eyebrow">How it works</div><h1 class="display">Inside the<br><em>workshop.</em></h1>
+      <p class="lede">${STAGES.length} inspection agents and ${levers.length} checks. Every line in a case is a real read from Robinhood Chain, made when you ask.</p></section>
+
+    <section class="rv">
+      <div class="sechead"><h2>How a case runs</h2><span>about ten seconds</span></div>
+      <div class="steps">
+        <div class="rv" style="--d:0"><h3>Bring it in</h3><p>Paste an address. It gets a case number that's the same for everyone, so a case link always opens the same case.</p></div>
+        <div class="rv" style="--d:1"><h3>Watch the work</h3><p>Bytecode, proxy slots, token details, the owner, the owner's bag and where the supply sits, all read live.</p></div>
+        <div class="rv" style="--d:2"><h3>Take the verdict</h3><p>A risk score, plain-English exhibits, and a link to the verified source so you can check our work.</p></div>
+      </div>
+    </section>
+
+    <section class="rv">
+      <div class="sechead"><h2>What the agents look for</h2><span>${SIG_COUNT} function signatures</span></div>
+      <div class="levers">${levers.map((l) => `
+        <div class="lever"><span class="sev ${l.sev}">${l.sev.toUpperCase()}</span>
+          <h3>${esc(l.title)}</h3><p>${esc(l.why)}</p></div>`).join("")}</div>
+    </section>
+
+    <section class="rv">
+      <div class="sechead"><h2>What a case can't tell you</h2></div>
+      <p class="lede" style="font-size:16px">Selector matching can miss renamed functions and can't see what a function enforces inside (a fee cap, say). On Robinhood Chain, pools and lockers are recognised by the explorer's labels, so an unlabelled pool counts as an ordinary contract. Bridged tokens show "mint" because the bridge mints them. A clean case is a good start, not a guarantee.</p>
+    </section>`;
+}
+
+// ---------- the line: real tokens on Robinhood Chain, from the explorer ----------
+const usd = (n) => (n >= 1 ? "$" + n.toLocaleString("en", { minimumFractionDigits: n < 1000 ? 2 : 0, maximumFractionDigits: 2 }) : "$" + n.toPrecision(3));
+
+async function linePage() {
+  setNav("line", "The Line");
+  $("#view").innerHTML = `
+    <section class="page-hero"><div class="eyebrow">The Line</div><h1 class="display">Who's waiting<br>at the <em>door.</em></h1>
+      <p class="lede">The most-held tokens on Robinhood Chain right now, straight from the explorer. Pick one and open its case.</p>
+      <label class="line-search"><span class="label">Filter</span><input id="q" placeholder="Name, symbol, or paste an address" autocomplete="off" spellcheck="false" /></label>
+    </section>
+    <ol class="line" id="line">${Array.from({ length: 8 }, () => `<li class="lrow skel"><span></span><span></span><span></span></li>`).join("")}</ol>
+    <div class="actions" id="more"></div>`;
+  const api = CHAINS.rh.api;
+  let items = [], next = null, loading = false;
+
+  const row = (t, i) => {
+    const sym = t.symbol || "?";
+    const price = Number(t.exchange_rate);
+    return `<li class="lrow" style="--d:${i % 14}">
+      <span class="lno">${String(i + 1).padStart(2, "0")}</span>
+      <span class="ltok">${t.icon_url ? `<img src="${esc(t.icon_url)}" alt="" width="32" height="32" loading="lazy" referrerpolicy="no-referrer" data-letter="${esc(sym[0])}">` : `<i>${esc(sym[0])}</i>`}
+        <span><b>${esc(sym)}</b><small>${esc(t.name || "")}</small></span></span>
+      <span class="lnum"><b>${Number(t.holders_count || 0).toLocaleString("en")}</b><small>holders</small></span>
+      <span class="lnum lprice"><b>${price ? usd(price) : "—"}</b><small>price</small></span>
+      <a class="btn ghost sm" href="#/room/rh/${t.address_hash}">Open case</a>
+    </li>`;
+  };
+  const render = () => {
+    const q = $("#q").value.trim().toLowerCase();
+    const list = q ? items.filter((t) => (t.symbol || "").toLowerCase().includes(q) || (t.name || "").toLowerCase().includes(q) || t.address_hash.toLowerCase() === q) : items;
+    let html = list.map(row).join("");
+    if (isAddr(q) && !list.length) html = `<li class="lrow"><span class="lno">→</span><span class="ltok"><i>?</i><span><b>${esc(short(q))}</b><small>Not in the top list</small></span></span><span></span><span></span><a class="btn sm" href="#/room/rh/${q}">Open case</a></li>`;
+    else if (!list.length && items.length) html = `<li class="lempty">Nothing in this list matches "${esc(q)}". Paste a full address to open any token's case.</li>`;
+    $("#line").innerHTML = html;
+    // a missing token icon falls back to its first letter
+    $("#line").querySelectorAll("img[data-letter]").forEach((img) => img.onerror = () => {
+      const i = document.createElement("i");
+      i.textContent = img.dataset.letter;
+      img.replaceWith(i);
+    });
+    $("#more").innerHTML = next && !q ? `<button class="btn ghost" id="loadMore">Show more tokens</button>` : "";
+    $("#loadMore")?.addEventListener("click", load);
+  };
+  async function load() {
+    if (loading) return;
+    loading = true;
+    const btn = $("#loadMore"); if (btn) btn.textContent = "Loading…";
+    try {
+      const qs = next ? "&" + new URLSearchParams(next).toString() : "";
+      const page = await getJson(api + "/tokens?type=ERC-20" + qs);
+      if (!location.hash.startsWith("#/line")) return;
+      items = items.concat(page.items || []);
+      next = page.next_page_params || null;
+      if (!items.length) throw new Error("empty");
+      render();
+    } catch {
+      if (!items.length) $("#line").innerHTML = `<li class="lempty">The explorer didn't answer just now. <button class="chip" id="retryLine">Try again</button></li>`;
+      $("#retryLine")?.addEventListener("click", () => { $("#line").innerHTML = ""; load(); });
+    } finally { loading = false; }
+  }
+  $("#q").oninput = render;
+  load();
+}
+
+// ---------- the token ----------
+async function tokenPage() {
+  const sym = esc(TOKEN.symbol);
+  setNav("token", "$" + TOKEN.symbol);
+  const live = isAddr(TOKEN.address);
+  $("#view").innerHTML = `
+    <section class="page-hero token-hero">
+      <div><div class="eyebrow">The token</div><h1 class="display">$${sym}</h1>
+        <p class="lede">${live ? `The Backroom's token on Robinhood Chain. It gets the same case file as every other token, and anyone can open it.` : `The Backroom's token. It isn't live yet, and this page is where its one real address will appear.`}</p></div>
+      <div class="token-art" aria-hidden="true">${doorArt("k")}</div>
+    </section>
+    ${live ? `
+      <div class="ca rv"><span class="label">Contract address · Robinhood Chain</span><code>${TOKEN.address}</code><button class="btn ghost sm" id="copyCa">Copy</button></div>
+      <div class="nums tnums rv"><div><b id="t-holders">—</b><span>holders</span></div><div><b id="t-supply">—</b><span>supply</span></div><div><b id="t-price">—</b><span>price</span></div></div>
+      <div class="actions left rv"><a class="btn" href="#/room/rh/${TOKEN.address}">Open its case file</a>${TOKEN.buyUrl ? `<a class="btn ghost" href="${esc(TOKEN.buyUrl)}" target="_blank" rel="noopener">Buy $${sym}</a>` : ""}<a class="btn ghost" href="${CHAINS.rh.scan}${TOKEN.address}" target="_blank" rel="noopener">View on the explorer</a></div>`
+    : `
+      <div class="soon rv"><div class="soon-stamp">Not launched</div>
+        <p>There's no $${sym} contract yet. Until there is, any address calling itself $${sym} isn't ours. At launch, the real address goes on this page, with its own Backroom case file beside it.</p></div>`}
+    <section class="rv">
+      <div class="sechead"><h2>Held to the same standard</h2></div>
+      <div class="steps">
+        <div class="rv" style="--d:0"><h3>Same checks, no exceptions</h3><p>$${sym} gets the exact case file every other token gets: kept powers, owner, holders, pools.</p></div>
+        <div class="rv" style="--d:1"><h3>Read-only, always</h3><p>Backroom never asks you to connect a wallet or sign anything, for $${sym} or any other token.</p></div>
+        <div class="rv" style="--d:2"><h3>One real address</h3><p>The only genuine $${sym} address is the one on this page. If it isn't here, it isn't $${sym}.</p></div>
+      </div>
+    </section>`;
+  if (!live) return;
+  $("#copyCa").onclick = () => navigator.clipboard?.writeText(TOKEN.address).then(() => toast("Address copied"), () => toast("Couldn't copy"));
+  const t = await getJson(CHAINS.rh.api + "/tokens/" + TOKEN.address).catch(() => null);
+  if (!t || !location.hash.startsWith("#/token")) return;
+  setCount($("#t-holders"), Number(t.holders_count));
+  if (t.total_supply) setCount($("#t-supply"), Number(t.total_supply) / 10 ** Number(t.decimals || 18));
+  if (Number(t.exchange_rate)) $("#t-price").textContent = usd(Number(t.exchange_rate));
+}
+
+// ---------- shell: routing, page entrance, phone menu ----------
+function setMenu(open) {
+  document.body.classList.toggle("menu-open", open);
+  $("#menuBtn")?.setAttribute("aria-expanded", String(open));
+}
+
 function route() {
+  setMenu(false);
   const parts = location.hash.replace(/^#\/?/, "").split("/");
   window.scrollTo(0, 0);
+  const v = $("#view");
+  v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter");
   if (parts[0] === "room") return room(parts[1], parts[2]);
   if (parts[0] === "compare") return compare(parts[2] ? [parts[1], parts[2]] : null, parts[4] ? [parts[3], parts[4]] : null);
   if (parts[0] === "rooms") return rooms();
   if (parts[0] === "how") return how();
+  if (parts[0] === "line") return linePage();
+  if (parts[0] === "token") return tokenPage();
   home();
 }
 
 if (!HAS_KECCAK) {
   document.getElementById("view").innerHTML = '<p class="err">Could not load the hashing library. Check your connection and reload.</p>';
 } else {
+  // anything a page adds later (results, rows) gets its scroll reveal too
+  new MutationObserver(() => reveal()).observe($("#view"), { childList: true, subtree: true });
+  $("#menuBtn")?.addEventListener("click", () => setMenu(!document.body.classList.contains("menu-open")));
+  addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
   window.addEventListener("hashchange", route);
   route();
 }

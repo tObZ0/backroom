@@ -4,12 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Backroom — Token Inspection Workshop</title>
-  <meta name="description" content="Paste a Robinhood Chain token. Backroom reads the chain and tells you, in plain English, what the deployer can still do." />
+  <meta name="description" content="Paste a Robinhood Chain token. Backroom reads the chain, opens a case file, and tells you in plain English what the deployer can still do." />
   <meta name="theme-color" content="#ece5d3" />
   <link rel="icon" href="logo.svg" type="image/svg+xml" />
-  <meta property="og:title" content="Backroom — Token Inspection Workshop" />
-  <meta property="og:description" content="Paste a token contract. See what the deployer can still do." />
-  <link rel="stylesheet" href="styles.css?v=1792454355" />
+  <meta property="og:title" content="Backroom — What are you bringing into the Backroom?" />
+  <meta property="og:description" content="Read-only token inspection for Robinhood Chain. Every token gets a case file." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..800;1,9..144,400..700&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="styles.css?v=1792472044" />
 </head>
 <body>
   <header class="bar">
@@ -17,22 +20,29 @@
       <img src="logo.svg" alt="" width="34" height="34" />
       <span>Backroom</span>
     </a>
-    <nav>
+    <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="nav"><span></span><span></span><b>Menu</b></button>
+    <nav id="nav">
       <a href="#/" data-nav="home">Workshop</a>
-      <a href="#/how" data-nav="how">How it works</a>
+      <a href="#/line" data-nav="line">The Line</a>
       <a href="#/compare" data-nav="compare">Compare</a>
-      <a href="#/rooms" data-nav="rooms">Your cases</a>
+      <a href="#/how" data-nav="how">How it works</a>
+      <a href="#/token" data-nav="token">$ROOM</a>
     </nav>
   </header>
 
   <main id="view"></main>
 
   <footer class="foot">
-    <div class="foot-brand"><img src="logo.svg" alt="" width="22" height="22" /><span>BACKROOM</span></div>
+    <div class="foot-top">
+      <div class="foot-brand"><img src="logo.svg" alt="" width="28" height="28" /><span>Backroom</span></div>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="#/">Workshop</a><a href="#/line">The Line</a><a href="#/compare">Compare</a><a href="#/how">How it works</a><a href="#/token">$ROOM</a><a href="#/rooms">Your cases</a>
+      </nav>
+    </div>
     <p>Backroom only reads public, on-chain data. Nothing is signed and no wallet is connected. Findings are heuristic signals, not a guarantee and not financial advice.</p>
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha3/0.9.3/sha3.min.js"></script>
-  <script src="app.js?v=1792448429"></script>
+  <script src="app.js?v=1792472044"></script>
 </body>
 </html>
