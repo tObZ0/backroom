@@ -23,6 +23,7 @@ const SAMPLES = [
 // The project token. Leave the address empty until launch: the homepage and the
 // token page then say it isn't live. Set it (and buyUrl, if any) and redeploy.
 const TOKEN = { symbol: "ROOM", address: "", buyUrl: "" };
+const X_URL = "https://x.com/backroomxy", X_HANDLE = "@backroomxy";
 
 // Privileged functions worth knowing about. Selectors are computed from the
 // signatures at load time so there is no hand-copied hex to get wrong.
@@ -939,7 +940,7 @@ async function tokenPage() {
       <div class="actions left rv"><a class="btn" href="#/room/rh/${TOKEN.address}">Open its case file</a>${TOKEN.buyUrl ? `<a class="btn ghost" href="${esc(TOKEN.buyUrl)}" target="_blank" rel="noopener">Buy $${sym}</a>` : ""}<a class="btn ghost" href="${CHAINS.rh.scan}${TOKEN.address}" target="_blank" rel="noopener">View on the explorer</a></div>`
     : `
       <div class="soon rv"><div class="soon-stamp">Not launched</div>
-        <p>There's no $${sym} contract yet. Until there is, any address calling itself $${sym} isn't ours. At launch, the real address goes on this page, with its own Backroom case file beside it.</p></div>`}
+        <p>There's no $${sym} contract yet. Until there is, any address calling itself $${sym} isn't ours. At launch, the real address goes on this page, with its own Backroom case file beside it, and we'll post it on <a href="${X_URL}" target="_blank" rel="noopener">${X_HANDLE}</a>.</p></div>`}
     <section class="rv">
       <div class="sechead"><h2>Held to the same standard</h2></div>
       <div class="steps">

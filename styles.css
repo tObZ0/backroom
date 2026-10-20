@@ -493,3 +493,15 @@ html, body { overflow-x: clip; }
   .bar nav a + a { margin-left: 0; }
   .bar nav a + a::before { content: none; }
 }
+
+/* the X link: an icon on desktop, icon and handle in the phone menu */
+.bar nav a.nav-x { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+.bar nav a.nav-x span { display: none; }
+.bar nav a.nav-x::after { display: none; }
+.bar nav a.nav-x:hover { color: var(--crimson); }
+@media (max-width: 760px) {
+  .bar nav a.nav-x { font-family: var(--mono); font-size: 18px; border-bottom: 0; padding-top: 18px; }
+  .bar nav a.nav-x span { display: inline; }
+  .bar nav a.nav-x svg { width: 20px; height: 20px; }
+}
+.soon a { color: var(--crimson); }
