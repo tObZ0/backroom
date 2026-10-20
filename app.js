@@ -352,344 +352,52 @@ async function inspect(chain, addr, ui) {
 }
 
 // ---------- views ----------
-// Everything the user sees is a receipt. One model (a list of lines) drives both
-// the page and the saved PNG, so what you save is exactly what you saw.
-const BASE_TITLE = "Backroom — Get the receipts on any Robinhood Chain token";
+const BASE_TITLE = "Backroom — Token Inspection Workshop";
 function setNav(name, title) {
   document.title = title ? title + " — Backroom" : BASE_TITLE;
   document.querySelectorAll(".bar nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === name));
 }
 
-const dayMonth = (t) => new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
-const clock = (t) => new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-const ticketNo = (t) => String(t).replace(/^BR-/, "");
-const chainOptions = (pick) => Object.entries(CHAINS).map(([k, c]) => `<option value="${k}"${k === pick ? " selected" : ""}>${c.name}</option>`).join("");
+const stampDate = (t) => new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
+const VERDICT = { low: "Cleared", mid: "Caution", high: "Flagged" };
 
-// what each kept power is called on the bill
-const KEPT_LABEL = {
-  "Owner can mint new tokens": "mint new tokens",
-  "Wallets can be blacklisted": "blacklist wallets",
-  "Contract is upgradeable": "swap the code",
-  "Fees / taxes can be changed": "change fees",
-  "Transfers can be paused": "pause transfers",
-  "Trading switch held by owner": "switch trading off",
-  "Transaction / wallet limits adjustable": "cap buys and sells",
-  "Fee exemptions exist": "exempt wallets",
-};
-
-function tier(r) {
-  const flagged = r.findings.filter((f) => !f.good).length;
-  if (r.band === "high") return { word: "Read the fine print", cls: "high" };
-  if (r.band === "mid") return { word: "Items flagged", cls: "mid" };
-  return flagged ? { word: "Minor items", cls: "low" } : { word: "No flags raised", cls: "low" };
-}
-
-function receiptModel(r) {
-  const c = CHAINS[r.chain];
-  const L = [];
-  const notes = [];
-  // footnote number for the first flagged finding matching pred, registered in receipt order
-  const noteFor = (pred) => {
-    const f = r.findings.find((x) => !x.good && pred(x.title));
-    if (!f) return null;
-    if (!notes.includes(f)) notes.push(f);
-    return notes.indexOf(f) + 1;
-  };
-  const kv = (k, v, mark = null, t = "kv") => L.push({ t, k, v: String(v), mark });
-  const rule = (s = "dash") => L.push({ t: "rule", s });
-  const renounced = r.owner === ZERO;
-
-  L.push({ t: "title", text: "BACKROOM" });
-  L.push({ t: "center", text: "back of house · " + c.name });
-  kv("TICKET " + ticketNo(r.ticket), dayMonth(r.at) + " " + clock(r.at));
-  rule();
-  L.push({ t: "strong", text: r.symbol || "UNKNOWN", sub: short(r.addr) });
-  if (r.name && r.name.toLowerCase() !== (r.symbol || "").toLowerCase()) kv("name", r.name);
-  kv("supply", r.supply);
-  kv("owner", r.owner ? (renounced ? "renounced" : short(r.owner)) : "none", noteFor((t) => t === "Owner still active"));
-  if (r.ownerPct != null) kv("owner's bag", r.ownerPct + "%", noteFor((t) => t.startsWith("Owner holds")));
-  kv("code", r.codeSize.toLocaleString() + " bytes");
-  kv("proxy", r.proxy ? "yes" : "no", noteFor((t) => t === "Proxy contract"));
-
-  rule();
-  L.push({ t: "head", text: "WHAT THE DEPLOYER KEPT" });
-  for (const rl of RULES) {
-    const f = r.findings.find((x) => x.title === rl.title);
-    kv(KEPT_LABEL[rl.title] || rl.title.toLowerCase(), f ? (renounced ? "kept, renounced" : "KEPT") : "—", f ? noteFor((t) => t === rl.title) : null);
-  }
-
-  rule();
-  L.push({ t: "head", text: "WHERE THE SUPPLY SITS" });
-  if (r.holderView) {
-    kv("holders", r.holders.toLocaleString());
-    kv("in pools", r.poolPct + "%", noteFor((t) => t === "Little visible liquidity"));
-    kv("locked", r.lockedPct + "%");
-    kv("burned", r.burnedPct + "%");
-    kv("biggest wallet", r.topWallet ? r.topWallet.pct + "%" : "—", noteFor((t) => t.startsWith("One wallet holds")));
-    kv("biggest contract", r.topContract ? r.topContract.pct + "%" : "—", noteFor((t) => t.includes(" sits in one ")));
-  } else if (r.pairChecked) {
-    kv("v2 pool", r.liquidity || "none found");
-    kv("lp burned", r.lpBurned != null ? r.lpBurned + "%" : "—", noteFor((t) => /liquidity/i.test(t)));
-  } else {
-    kv("holders", "not checked");
-  }
-  // anything flagged that didn't land on a line above still gets its footnote
-  r.findings.filter((f) => !f.good).forEach((f) => noteFor((t) => t === f.title));
-
-  const goods = r.findings.filter((f) => f.good);
-  if (goods.length) {
-    rule();
-    L.push({ t: "head", text: "IN ITS FAVOUR" });
-    goods.forEach((f) => L.push({ t: "plus", text: f.title }));
-  }
-
-  rule("solid");
-  kv("ITEMS FLAGGED", notes.length, null, "total");
-  kv("risk score", r.score + "/100");
-  notes.forEach((f, i) => L.push({ t: "note", n: i + 1, text: f.title + ". " + f.why }));
-  const tr = tier(r);
-  L.push({ t: "verdict", text: tr.word.toUpperCase(), cls: tr.cls });
-  L.push({ t: "barcode", addr: r.addr });
-  L.push({ t: "center", text: "keep this receipt" });
-  L.push({ t: "fine", text: "Read from public chain data just now. A pattern check, not an audit, and not financial advice." });
-  return L;
-}
-
-function voidModel(chain, addr, message) {
-  return [
-    { t: "title", text: "BACKROOM" },
-    { t: "center", text: "back of house · " + CHAINS[chain].name },
-    { t: "kv", k: "TICKET " + ticketNo(ticketFor(chain, addr)), v: dayMonth(Date.now()) + " " + clock(Date.now()) },
-    { t: "rule", s: "dash" },
-    { t: "strong", text: "NO SALE", sub: short(addr) },
-    { t: "rule", s: "solid" },
-    { t: "verdict", text: "VOID", cls: "high" },
-    { t: "note", n: 1, text: message + ". Check the address and the chain, then try again." },
-    { t: "barcode", addr },
-  ];
-}
-
-// the homepage receipt: what you get at this counter
-function menuModel() {
-  return [
-    { t: "title", text: "BACKROOM" },
-    { t: "center", text: "back of house · Robinhood Chain" },
-    { t: "rule", s: "dash" },
-    { t: "head", text: "AT THIS COUNTER" },
-    { t: "kv", k: "paste a token", v: "free" },
-    { t: "kv", k: "we read the chain", v: "~6 sec" },
-    { t: "kv", k: "itemized receipt", v: "yours" },
-    { t: "rule", s: "dash" },
-    { t: "kv", k: "wallet needed", v: "none" },
-    { t: "kv", k: "signatures", v: "none" },
-    { t: "kv", k: "kept powers checked", v: String(RULES.length) },
-    { t: "rule", s: "solid" },
-    { t: "verdict", text: "READ-ONLY", cls: "low" },
-    { t: "barcode", addr: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" },
-    { t: "center", text: "keep this receipt" },
-  ];
-}
-
-// deterministic bars from the address, so each token has its own barcode
-function bars(addr) {
-  const hex = addr.toLowerCase().replace(/^0x/, "");
-  const out = [];
-  let x = 0;
-  for (let i = 0; x < 236; i++) {
-    const d = parseInt(hex[i % hex.length], 16);
-    const w = 1 + (d % 3);
-    out.push([x, w]);
-    x += w + 1 + ((d >> 2) % 2) + 1;
-  }
-  return out;
-}
-
-function lineHTML(l, i) {
-  const s = `style="--i:${i}"`;
-  switch (l.t) {
-    case "title": return `<div class="ln title" ${s}>${esc(l.text)}</div>`;
-    case "center": return `<div class="ln center" ${s}>${esc(l.text)}</div>`;
-    case "rule": return `<div class="ln rule ${l.s}" ${s}></div>`;
-    case "head": return `<div class="ln head" ${s}>${esc(l.text)}</div>`;
-    case "strong": return `<div class="ln strong" ${s}>${esc(l.text)} <span>${esc(l.sub)}</span></div>`;
-    case "plus": return `<div class="ln plus" ${s}>+ ${esc(l.text)}</div>`;
-    case "note": return `<div class="ln note" ${s}><b>${l.n}</b>${esc(l.text)}</div>`;
-    case "verdict": return `<div class="ln verdict ${l.cls}" ${s}>${esc(l.text)}</div>`;
-    case "fine": return `<div class="ln fine" ${s}>${esc(l.text)}</div>`;
-    case "barcode":
-      return `<div class="ln barcode" ${s}><svg viewBox="0 0 240 40" preserveAspectRatio="none" role="img" aria-label="Barcode for ${esc(l.addr)}">${bars(l.addr).map(([x, w]) => `<rect x="${x}" y="0" width="${w}" height="40"/>`).join("")}</svg></div>`;
-    default: // kv and total
-      return `<div class="ln ${l.t}${l.mark ? " flag" : ""}" ${s}><span class="k">${esc(l.k)}</span><span class="dots"></span><span class="v">${esc(l.v)}${l.mark ? `<sup>${l.mark}</sup>` : ""}</span></div>`;
-  }
-}
-
-const receiptHTML = (L, cls = "printing") => `<div class="receipt ${cls}"><div class="paper">${L.map(lineHTML).join("")}</div><div class="tear"></div></div>`;
-
-// ---------- saving the receipt as an image ----------
-const INK = "#1b1a18", MUTED = "#5f5b53", RED = "#b3201c", PAPER = "#f8f6f0", COUNTER = "#d9d5cc";
-
-function wrapText(ctx, text, maxW) {
-  const lines = [];
-  let cur = "";
-  for (const word of text.split(" ")) {
-    let w = word;
-    // a word wider than the line (an address) is broken by characters
-    while (ctx.measureText(w).width > maxW) {
-      let k = w.length;
-      while (k > 1 && ctx.measureText(w.slice(0, k)).width > maxW) k--;
-      if (cur) { lines.push(cur); cur = ""; }
-      lines.push(w.slice(0, k));
-      w = w.slice(k);
-    }
-    const next = cur ? cur + " " + w : w;
-    if (ctx.measureText(next).width > maxW && cur) { lines.push(cur); cur = w; } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
-
-// lays the receipt out on a canvas; with draw=false it only measures the height
-function layReceipt(ctx, L, x0, y0, W, draw) {
-  const mono = (wt, px) => `${wt} ${px}px "IBM Plex Mono", ui-monospace, monospace`;
-  const disp = (px) => `${px}px "Archivo Black", "Arial Black", sans-serif`;
-  let y = y0;
-  const text = (t, x, yy, font, color, align = "left") => {
-    if (!draw) return;
-    ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "alphabetic";
-    ctx.fillText(t, x, yy);
-  };
-  for (const l of L) {
-    if (l.t === "title") { y += 30; text(l.text, x0 + W / 2, y, disp(24), INK, "center"); y += 6; }
-    else if (l.t === "center") { y += 17; text(l.text, x0 + W / 2, y, mono(400, 12), MUTED, "center"); }
-    else if (l.t === "rule") {
-      y += 10;
-      if (draw) {
-        ctx.strokeStyle = INK; ctx.lineWidth = l.s === "solid" ? 2 : 1; ctx.setLineDash(l.s === "solid" ? [] : [4, 3]);
-        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + W, y); ctx.stroke(); ctx.setLineDash([]);
-      }
-      y += 6;
-    }
-    else if (l.t === "head") { y += 19; text(l.text, x0, y, mono(700, 13), INK); }
-    else if (l.t === "strong") {
-      y += 22; text(l.text, x0, y, mono(700, 16), INK);
-      if (draw) { ctx.font = mono(700, 16); const w = ctx.measureText(l.text + " ").width; text(l.sub, x0 + w, y, mono(400, 12), MUTED); }
-    }
-    else if (l.t === "plus") { y += 19; text("+ " + l.text, x0, y, mono(400, 13), INK); }
-    else if (l.t === "note") {
-      ctx.font = mono(400, 12);
-      const lines = wrapText(ctx, l.text, W - 20);
-      y += 6;
-      lines.forEach((ln, i) => { y += 17; if (i === 0) text(String(l.n), x0, y, mono(700, 12), RED); text(ln, x0 + 20, y, mono(400, 12), MUTED); });
-    }
-    else if (l.t === "verdict") { y += 36; text(l.text, x0 + W / 2, y, disp(22), l.cls === "high" ? RED : INK, "center"); y += 6; }
-    else if (l.t === "barcode") {
-      y += 10;
-      if (draw) { ctx.fillStyle = INK; const sx = W / 240; bars(l.addr).forEach(([bx, bw]) => ctx.fillRect(x0 + bx * sx, y, bw * sx, 44)); }
-      y += 44;
-    }
-    else if (l.t === "fine") {
-      ctx.font = mono(400, 11);
-      wrapText(ctx, l.text, W).forEach((ln) => { y += 15; text(ln, x0 + W / 2, y, mono(400, 11), MUTED, "center"); });
-    }
-    else { // kv / total
-      const total = l.t === "total";
-      y += total ? 24 : 19;
-      const vFont = total ? disp(18) : mono(l.mark || l.v === "KEPT" ? 700 : 400, 13);
-      const kFont = mono(total ? 700 : 400, 13);
-      ctx.font = vFont;
-      const markW = l.mark ? 12 : 0;
-      const vw = ctx.measureText(l.v).width;
-      ctx.font = kFont;
-      const kw = ctx.measureText(l.k).width;
-      text(l.k, x0, y, kFont, INK);
-      text(l.v, x0 + W - markW, y, vFont, INK, "right");
-      if (l.mark) text(String(l.mark), x0 + W, y - 5, mono(700, 10), RED, "right");
-      if (draw) {
-        ctx.strokeStyle = "rgba(27,26,24,.3)"; ctx.lineWidth = 1; ctx.setLineDash([1, 3]);
-        ctx.beginPath(); ctx.moveTo(x0 + kw + 6, y - 3); ctx.lineTo(x0 + W - markW - vw - 6, y - 3); ctx.stroke(); ctx.setLineDash([]);
-      }
-    }
-  }
-  return y;
-}
-
-async function receiptCanvas(L) {
-  await Promise.all(['400 13px "IBM Plex Mono"', '700 13px "IBM Plex Mono"', '24px "Archivo Black"'].map((f) => document.fonts.load(f).catch(() => {})));
-  const S = 2, W = 300, PAD = 22, M = 30;
-  const probe = document.createElement("canvas").getContext("2d");
-  const inner = layReceipt(probe, L, 0, 0, W, false) + 18;
-  const paperH = inner + PAD;
-  const cw = W + PAD * 2 + M * 2, ch = paperH + 14 + M * 2 + 22;
-  const canvas = document.createElement("canvas");
-  canvas.width = cw * S; canvas.height = ch * S;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(S, S);
-  ctx.fillStyle = COUNTER; ctx.fillRect(0, 0, cw, ch);
-  // paper with a torn zigzag bottom
-  const px = M, py = M, pw = W + PAD * 2;
-  ctx.fillStyle = PAPER;
-  ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + pw, py); ctx.lineTo(px + pw, py + paperH);
-  for (let x = px + pw, up = false; x > px; x -= 6, up = !up) ctx.lineTo(Math.max(px, x - 6), py + paperH + (up ? 0 : 8));
-  ctx.lineTo(px, py + paperH); ctx.closePath(); ctx.fill();
-  layReceipt(ctx, L, px + PAD, py + PAD - 8, W, true);
-  ctx.font = '400 11px "IBM Plex Mono", monospace'; ctx.fillStyle = MUTED; ctx.textAlign = "center";
-  ctx.fillText(location.host || "backroom", cw / 2, ch - M / 2 - 4);
-  return canvas;
-}
-
-async function saveReceipt(L, name) {
-  try {
-    const canvas = await receiptCanvas(L);
-    const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-    const file = new File([blob], name, { type: "image/png" });
-    // phones get the share sheet (save to photos, post to X); desktops get a download
-    if (matchMedia("(pointer: coarse)").matches && navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: "Backroom receipt" }); return; }
-      catch (e) { if (e.name === "AbortError") return; }
-    }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: name });
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    toast("Receipt saved");
-  } catch {
-    toast("Couldn't save the receipt");
-  }
-}
-
-// ---------- pages ----------
 function home() {
   setNav("home");
   $("#view").innerHTML = `
-    <section class="counter">
-      <div class="pitch">
-        <h1>Get the<br>receipts.</h1>
-        <p class="lede">Hand a Robinhood Chain token over the counter. Backroom reads the chain and prints everything the deployer kept, line by line.</p>
-        <form id="f" class="order" autocomplete="off">
-          <div class="order-row">
-            <select id="chain" aria-label="Chain">${chainOptions()}</select>
-            <input id="addr" placeholder="0x… token address" spellcheck="false" aria-label="Token address" />
-            <button class="btn" id="go">Print</button>
+    <div class="front">
+      <h1>What are you bringing into the <em>Backroom?</em></h1>
+      <p class="lede">Hand over a Robinhood Chain token. We read the chain, open a case file, and tell you in plain words what the deployer can still do.</p>
+      <form id="f" class="slip">
+        <div class="slip-head">
+          <span class="label">Intake form 01</span>
+          <div class="tabs">
+            <button type="button" class="tab on" data-mode="paste">New case</button>
+            <button type="button" class="tab" data-mode="room">Existing case</button>
+          </div>
+        </div>
+        <div class="slip-body">
+          <div class="row">
+            <label class="field" id="chainField"><span class="label">Chain</span><select id="chain">${chainOptions()}</select></label>
+            <label class="field grow"><span class="label" id="addrLabel">Contract address</span>
+              <input id="addr" placeholder="0x…" autocomplete="off" spellcheck="false" /></label>
+            <button class="btn">Open case</button>
           </div>
           <p class="err" id="err"></p>
-          <div class="try"><span>Try</span>${SAMPLES.map((s, i) => `<button type="button" class="chip" data-i="${i}">${s.label}</button>`).join("")}</div>
-          <div class="below"><a href="#/compare">Compare two tokens</a><button type="button" class="linkish" id="mode">Look up a ticket</button></div>
-        </form>
-      </div>
-      <div class="sample" aria-hidden="true">${receiptHTML(menuModel())}</div>
-    </section>`;
+        </div>
+      </form>
+      <div class="chips"><span>Or try</span>${SAMPLES.map((s, i) => `<button type="button" class="chip" data-i="${i}">${s.label}</button>`).join("")}</div>
+      <div class="below"><a href="#/compare">Compare two tokens side by side</a><a href="#/how">What we check, and what we can't</a></div>
+    </div>`;
 
-  let lookup = false;
-  $("#mode").onclick = () => {
-    lookup = !lookup;
-    $("#chain").style.display = lookup ? "none" : "";
-    $("#addr").placeholder = lookup ? "Ticket number, e.g. 44326" : "0x… token address";
-    $("#addr").setAttribute("aria-label", lookup ? "Ticket number" : "Token address");
-    $("#go").textContent = lookup ? "Find" : "Print";
-    $("#mode").textContent = lookup ? "Print a new receipt" : "Look up a ticket";
+  let mode = "paste";
+  document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
+    mode = t.dataset.mode;
+    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+    $("#chainField").style.display = mode === "paste" ? "" : "none";
+    $("#addrLabel").textContent = mode === "paste" ? "Contract address" : "Case number";
+    $("#addr").placeholder = mode === "paste" ? "0x…" : "BR-04821";
     $("#err").textContent = "";
-    $("#addr").focus();
-  };
+  });
   document.querySelectorAll(".chip").forEach((b) => b.onclick = () => {
     const s = SAMPLES[b.dataset.i];
     location.hash = `#/room/${s.chain}/${s.addr}`;
@@ -697,149 +405,154 @@ function home() {
   $("#f").onsubmit = (e) => {
     e.preventDefault();
     const v = $("#addr").value.trim();
-    if (lookup) {
-      const want = ticketNo(v.toUpperCase());
-      const r = loadRooms().find((x) => ticketNo(x.ticket) === want);
-      if (!r) return ($("#err").textContent = "No ticket with that number in this browser. Open the receipt link instead.");
+    if (mode === "room") {
+      const r = loadRooms().find((x) => x.ticket.toLowerCase() === v.toLowerCase());
+      if (!r) return ($("#err").textContent = "No case with that number in this browser. Open the case link instead.");
       return (location.hash = `#/room/${r.chain}/${r.addr}`);
     }
-    if (!isAddr(v)) return ($("#err").textContent = "That isn't a token address. It should be 0x followed by 40 characters.");
+    if (!isAddr(v)) return ($("#err").textContent = "That isn't a contract address (0x + 40 hex characters).");
     location.hash = `#/room/${$("#chain").value}/${v}`;
   };
 }
 
-// what the printer says while each read runs, and what it prints when it's done
-const PRINT_STATUS = {
-  intake: "Taking your ticket", code: "Reading the bytecode", proxy: "Checking for a proxy", meta: "Reading token details",
-  scan: "Looking for kept powers", bag: "Weighing the owner's bag", lp: "Counting where the supply sits", verdict: "Adding it up",
-};
-const PRINT_LINE = { intake: "ticket", code: "bytecode", proxy: "proxy", meta: "token", scan: "kept powers", bag: "owner's bag", lp: "supply", verdict: "total" };
+const chainOptions = (pick) => Object.entries(CHAINS).map(([k, c]) => `<option value="${k}"${k === pick ? " selected" : ""}>${c.name}</option>`).join("");
 
-function printerUI(statusEl, paperEl) {
-  let i = 0;
-  return {
-    stage(id, state, note) {
-      if (state === "run") { statusEl.textContent = PRINT_STATUS[id] + "…"; statusEl.classList.add("busy"); }
-      if (state === "ok" && paperEl) paperEl.insertAdjacentHTML("beforeend", lineHTML({ t: "kv", k: PRINT_LINE[id], v: note || "done" }, i++));
-    },
-    log() {},
-  };
+function stamp(r, small = false) {
+  return `<div class="stamp ${r.band}${small ? " sm" : ""}" role="img" aria-label="${VERDICT[r.band]}, risk ${r.score} out of 100">
+    <span class="w">${VERDICT[r.band]}</span><span class="n">Risk ${r.score}/100</span><span class="d">${r.ticket} · ${stampDate(r.at)}</span></div>`;
+}
+
+function roomList(list) {
+  return `<ul class="list">${list.map((r) => `<li>
+    <a href="#/room/${r.chain}/${r.addr}"><b>${r.ticket}</b>${esc(r.symbol || short(r.addr))}</a>
+    <span class="meta">${CHAINS[r.chain]?.name || r.chain} · ${stampDate(r.at)}
+    ${r.score != null ? `<span class="pill ${r.band || "mid"}">${VERDICT[r.band] || ""} ${r.score}</span>` : ""}</span></li>`).join("")}</ul>`;
 }
 
 async function room(chain, addr) {
   if (!CHAINS[chain] || !isAddr(addr)) return home();
+  setNav("", "Case " + ticketFor(chain, addr));
   const t = ticketFor(chain, addr);
-  setNav("", "Ticket " + ticketNo(t));
   $("#view").innerHTML = `
-    <section class="desk">
-      <div class="slip-meta"><span>Ticket ${ticketNo(t)}</span><span>${CHAINS[chain].name}</span><a href="${CHAINS[chain].scan}${addr}" target="_blank" rel="noopener">${short(addr)}</a></div>
-      <div class="printer"><div class="mouth"></div><p class="status busy" id="status" aria-live="polite">Warming up…</p></div>
-      <div class="out" id="out"><div class="receipt working"><div class="paper" id="wp">${lineHTML({ t: "title", text: "BACKROOM" }, 0)}${lineHTML({ t: "rule", s: "dash" }, 1)}</div></div></div>
-      <div id="after"></div>
-    </section>`;
-  const status = $("#status");
+    <div class="ticket"><div><div class="eyebrow">Case file</div><b>${t}</b></div>
+      <div class="meta">${CHAINS[chain].name}<br><a href="${CHAINS[chain].scan}${addr}" target="_blank" rel="noopener">${esc(addr)}</a></div></div>
+    <div class="work">
+      <ol class="stages">${STAGES.map(([id, who, what]) => `<li id="s-${id}"><span><b>${who}</b> — ${what}</span><small></small></li>`).join("")}</ol>
+      <div class="log" id="log" aria-live="polite"></div>
+    </div>
+    <div id="report"></div>`;
+  const t0 = performance.now();
+  const ui = {
+    stage(id, state, note) {
+      const li = $("#s-" + id);
+      if (!li) return;
+      li.className = state;
+      if (note) li.querySelector("small").textContent = note;
+    },
+    log(msg, cls = "") {
+      const box = $("#log");
+      if (!box) return;
+      box.querySelector(".cur")?.classList.remove("cur");
+      const line = document.createElement("div");
+      line.className = "cur";
+      line.innerHTML = `<span class="t">${((performance.now() - t0) / 1000).toFixed(2)}s</span><span class="${cls}">${esc(msg)}</span>`;
+      box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+    },
+  };
   try {
-    const r = await inspect(chain, addr, printerUI(status, $("#wp")));
+    const r = await inspect(chain, addr, ui);
     if (!location.hash.includes(addr)) return;
-    const L = receiptModel(r);
-    const tr = tier(r);
-    status.classList.remove("busy");
-    status.textContent = "Printed " + clock(r.at) + " · tear along the line";
-    $("#out").innerHTML = receiptHTML(L);
-    document.title = `${ticketNo(r.ticket)} · ${r.symbol || short(addr)} · ${tr.word} — Backroom`;
-    const file = `backroom-${(r.symbol || "token").replace(/[^a-z0-9]+/gi, "").toLowerCase() || "token"}-${ticketNo(r.ticket)}.png`;
-    const tweet = `Got the receipts on $${r.symbol || "this token"}: ${tr.word.toLowerCase()}, risk ${r.score}/100.\n\n`;
-    $("#after").innerHTML = `
-      <div class="actions">
-        <button class="btn" id="save">Save receipt</button>
-        <a class="btn ghost" target="_blank" rel="noopener" href="https://x.com/intent/tweet?text=${encodeURIComponent(tweet)}&url=${encodeURIComponent(location.href)}">Post to X</a>
-        <button class="btn ghost" id="copy">Copy link</button>
-        <a class="btn ghost" href="${CHAINS[chain].scan}${addr}${CHAINS[chain].code}" target="_blank" rel="noopener">Check the source</a>
-        <a class="btn ghost" href="#/">New receipt</a>
-      </div>`;
-    $("#save").onclick = () => saveReceipt(L, file);
-    $("#copy").onclick = () => navigator.clipboard?.writeText(location.href).then(() => toast("Link copied"), () => toast("Couldn't copy"));
+    renderReport(r);
+    document.title = r.ticket + " · " + (r.symbol || short(addr)) + " · " + VERDICT[r.band] + " — Backroom";
+    // let the stamp land in view once the work is done
+    setTimeout(() => $(".case-top")?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
   } catch (e) {
-    if (!location.hash.includes(addr)) return;
-    status.classList.remove("busy");
-    status.textContent = "Couldn't print this one";
-    $("#out").innerHTML = receiptHTML(voidModel(chain, addr, e.message));
-    $("#after").innerHTML = `<div class="actions"><a class="btn" href="#/">Back to the counter</a><button class="btn ghost" id="retry">Try again</button></div>`;
+    $("#report").innerHTML = `<div class="case-top"><div class="stamp void" role="img" aria-label="Returned"><span class="w">Returned</span><span class="n">Case not opened</span><span class="d">${t} · ${stampDate(Date.now())}</span></div>
+      <div><h2>We couldn't open this case.</h2><p>${esc(e.message)}. Check the address and the chain, then try again.</p>
+      <div class="actions"><a class="btn" href="#/">Back to intake</a><button class="btn ghost" id="retry">Try again</button></div></div></div>`;
     $("#retry").onclick = route;
-    document.title = ticketNo(t) + " · Void — Backroom";
+    document.title = t + " · Returned — Backroom";
   }
 }
 
-function compare(a, b) {
-  setNav("compare", "Compare");
-  const [ca, aa] = a || ["rh", ""];
-  const [cb, ab] = b || ["rh", ""];
-  $("#view").innerHTML = `
-    <section class="pitch narrow">
-      <h1 class="h1-sm">Two tickets,<br>one counter.</h1>
-      <p class="lede">Print both receipts side by side and see which deployer kept more.</p>
-      <form id="cf" class="order two" autocomplete="off">
-        <div class="order-row"><span class="tag">A</span><select id="ca" aria-label="Chain for token A">${chainOptions(ca)}</select><input id="aa" value="${esc(aa)}" placeholder="0x… first token" spellcheck="false" aria-label="Token A address" /></div>
-        <div class="order-row"><span class="tag">B</span><select id="cb" aria-label="Chain for token B">${chainOptions(cb)}</select><input id="ab" value="${esc(ab)}" placeholder="0x… second token" spellcheck="false" aria-label="Token B address" /></div>
-        <div class="row-end"><button type="button" class="linkish" id="sample">Try PONS vs USDG</button><button class="btn">Print both</button></div>
-        <p class="err" id="err"></p>
-      </form>
-    </section>
-    <section class="pair" id="pair"></section>`;
-  $("#sample").onclick = () => (location.hash = `#/compare/rh/${SAMPLES[0].addr}/rh/${SAMPLES[1].addr}`);
-  $("#cf").onsubmit = (e) => {
-    e.preventDefault();
-    const x = $("#aa").value.trim(), y = $("#ab").value.trim();
-    if (!isAddr(x) || !isAddr(y)) return ($("#err").textContent = "Both need to be token addresses: 0x followed by 40 characters.");
-    location.hash = `#/compare/${$("#ca").value}/${x}/${$("#cb").value}/${y}`;
-  };
-  if (!a || !CHAINS[ca] || !CHAINS[cb] || !isAddr(aa) || !isAddr(ab)) return;
+function reportText(r) {
+  const lines = [
+    `BACKROOM ${r.ticket} · ${r.name || "Unknown"} (${r.symbol || "?"}) on ${CHAINS[r.chain].name}`,
+    r.addr,
+    `Risk ${r.score}/100`,
+    "",
+    ...r.findings.map((f) => `[${f.good ? "OK" : f.sev.toUpperCase()}] ${f.title}: ${f.why}`),
+    "",
+    location.href,
+  ];
+  return lines.join("\n");
+}
 
-  const jobs = [[ca, aa], [cb, ab]];
-  $("#pair").innerHTML = jobs.map(([c, ad], i) => `
-    <div class="col" id="col${i}">
-      <div class="col-head"><span class="tag">${"AB"[i]}</span><a href="#/room/${c}/${ad}">${short(ad)}</a></div>
-      <div class="printer"><div class="mouth"></div><p class="status busy" id="st${i}">Warming up…</p></div>
-      <div class="out" id="out${i}"><div class="receipt working"><div class="paper" id="wp${i}"></div></div></div>
-    </div>`).join("");
-  const hash = location.hash;
-  Promise.allSettled(jobs.map(([c, ad], i) => inspect(c, ad, printerUI($("#st" + i), $("#wp" + i))))).then((res) => {
-    if (location.hash !== hash) return;
-    const ok = res.map((x) => (x.status === "fulfilled" ? x.value : null));
-    const flags = ok.map((v) => (v ? v.findings.filter((f) => !f.good).length : Infinity));
-    res.forEach((x, i) => {
-      const st = $("#st" + i);
-      st.classList.remove("busy");
-      if (!ok[i]) {
-        st.textContent = "Couldn't print this one";
-        $("#out" + i).innerHTML = receiptHTML(voidModel(jobs[i][0], jobs[i][1], x.reason?.message || "Read failed"));
-        return;
-      }
-      const v = ok[i];
-      const better = ok[0] && ok[1] && (v.score < ok[1 - i].score || (v.score === ok[1 - i].score && flags[i] < flags[1 - i]));
-      st.innerHTML = better ? `<span class="sticker">Shorter bill</span>` : "Printed";
-      $("#out" + i).innerHTML = receiptHTML(receiptModel(v));
-    });
-    if (ok[0] && ok[1] && ok[0].score === ok[1].score && flags[0] === flags[1]) toast("Dead even: same bill");
-  });
+function renderReport(r) {
+  const label = { low: "Few levers left in the deployer's hands", mid: "Some levers still in play", high: "The deployer holds heavy control" }[r.band];
+  const counts = ["high", "mid", "low"].map((s) => [s, r.findings.filter((f) => f.sev === s && !f.good).length]).filter(([, n]) => n);
+  const goods = r.findings.filter((f) => f.good).length;
+  const owner = r.owner ? (r.owner === ZERO ? "Renounced" : `<span class="redact" tabindex="0" title="Hover to reveal">${esc(short(r.owner))}</span>`) : "No owner()";
+  const fact = (k, v) => `<div class="fact"><span class="label">${k}</span><b>${v}</b></div>`;
+  $("#report").innerHTML = `
+    <div class="case-top">
+      ${stamp(r)}
+      <div><h2>${label}.</h2>
+        <p>${esc(r.name || "This token")}${r.symbol ? " (" + esc(r.symbol) + ")" : ""} on ${CHAINS[r.chain].name}. The score counts the levers the deployer still holds; lower is better.</p>
+        <div class="counts">${counts.map(([s, n]) => `<span class="sev ${s}">${n} ${s}</span>`).join("")}
+          ${goods ? `<span class="sev low">${goods} in its favour</span>` : ""}</div></div>
+    </div>
+    <div class="sechead"><h2>The facts</h2><span>Read from the chain just now</span></div>
+    <div class="facts">
+      ${fact("Token", esc(r.symbol || "—"))}
+      ${fact("Supply", esc(r.supply))}
+      ${fact("Owner", owner)}
+      ${fact("Owner's bag", r.ownerPct != null ? r.ownerPct + "%" : "—")}
+      ${r.holderView ? `
+        ${fact("Holders", r.holders.toLocaleString())}
+        ${fact("In DEX pools", r.poolPct + "%")}
+        ${fact("Locked", r.lockedPct + "%")}
+        ${fact("Burned", r.burnedPct + "%")}
+        ${fact("Top wallet", r.topWallet ? r.topWallet.pct + "%" : "—")}
+        ${fact("Top other contract", r.topContract ? r.topContract.pct + "%" : "—")}`
+      : `
+        ${fact("Liquidity", r.liquidity ? esc(r.liquidity) : r.pairChecked ? "No V2 pool" : "Not checked")}
+        ${fact("LP burned", r.lpBurned != null ? r.lpBurned + "%" : r.pairChecked ? "—" : "Not checked")}`}
+      ${fact("Code size", r.codeSize.toLocaleString() + " B")}
+      ${fact("Proxy", r.proxy ? "Yes" : "No")}
+    </div>
+    <div class="sechead"><h2>Exhibits</h2><span>${r.findings.length} filed</span></div>
+    ${r.findings.length ? r.findings.map((f, i) => `
+      <article class="exhibit" style="animation-delay:${i * 60}ms">
+        <div class="ex">Exhibit<b>${String.fromCharCode(65 + i)}</b></div>
+        <div><h3>${esc(f.title)} <span class="sev ${f.sev}">${f.good ? "in favour" : f.sev}</span></h3><p>${esc(f.why)}</p>
+        ${f.sigs ? `<p style="margin-top:8px">${f.sigs.map((s) => `<code>${esc(s)}</code>`).join(" ")}</p>` : ""}</div>
+      </article>`).join("")
+      : `<article class="exhibit"><div class="ex">Exhibit<b>—</b></div><div><h3>Nothing filed</h3><p>None of the privileged functions we look for were found in the bytecode. A good sign, not a guarantee: custom names can hide the same behaviour.</p></div></article>`}
+    <div class="actions">
+      <a class="btn" id="share" target="_blank" rel="noopener">Post to X</a>
+      <button class="btn ghost" id="copy">Copy case link</button>
+      <button class="btn ghost" id="copyReport">Copy report</button>
+      <button class="btn ghost" id="print">Print case file</button>
+      <a class="btn ghost" href="${CHAINS[r.chain].scan}${r.addr}${CHAINS[r.chain].code}" target="_blank" rel="noopener">Check the source</a>
+      <a class="btn ghost" href="#/">New case</a>
+    </div>`;
+  const tweet = `Took $${r.symbol || "this token"} into the Backroom. Stamped ${VERDICT[r.band].toUpperCase()}, risk ${r.score}/100.\n\n`;
+  $("#share").href = "https://x.com/intent/tweet?text=" + encodeURIComponent(tweet) + "&url=" + encodeURIComponent(location.href);
+  const copy = (text, msg) => navigator.clipboard?.writeText(text).then(() => toast(msg), () => toast("Couldn't copy"));
+  $("#copy").onclick = () => copy(location.href, "Case link copied");
+  $("#copyReport").onclick = () => copy(reportText(r), "Report copied");
+  $("#print").onclick = () => window.print();
 }
 
 function rooms() {
-  setNav("rooms", "Your receipts");
+  setNav("rooms", "Your cases");
   const list = loadRooms();
-  $("#view").innerHTML = `
-    <section class="pitch narrow">
-      <h1 class="h1-sm">On the spike.</h1>
-      <p class="lede">Receipts you've printed in this browser. Share a receipt's link and anyone gets the same one, read fresh from the chain.</p>
-      ${list.length ? `<div class="stubs">${list.map((r) => `
-        <a class="stub" href="#/room/${r.chain}/${r.addr}">
-          <span class="stub-no">${ticketNo(r.ticket)}</span>
-          <span class="stub-sym">${esc(r.symbol || short(r.addr))}</span>
-          <span class="stub-meta">${CHAINS[r.chain]?.name || r.chain} · ${dayMonth(r.at)}${r.score != null ? ` · risk ${r.score}` : ""}</span>
-        </a>`).join("")}</div>
-        <div class="actions left"><button class="btn ghost" id="clear">Clear the spike</button></div>`
-      : `<p class="hint">Nothing on the spike yet. <a href="#/">Print your first receipt.</a></p>`}
-    </section>`;
+  $("#view").innerHTML = `<div class="eyebrow">Your cases</div><h1>Case files</h1>
+    <p class="lede">Kept only in this browser. Share a case link to show someone the same report.</p>
+    ${list.length ? roomList(list) + `<div class="actions"><button class="btn ghost" id="clear">Clear this list</button></div>`
+      : `<p class="hint">No cases yet. <a href="#/">Bring something in.</a></p>`}`;
   $("#clear")?.addEventListener("click", () => {
     try { localStorage.removeItem("backroom.rooms"); } catch {}
     rooms();
@@ -848,24 +561,96 @@ function rooms() {
 
 function how() {
   setNav("how", "How it works");
+  const levers = [...RULES, ...EXTRA_CHECKS];
+  $("#view").innerHTML = `<div class="how">
+    <div class="eyebrow">How it works</div><h1>Inside the workshop</h1>
+    <p class="lede">${STAGES.length} inspection agents, ${levers.length} checks, ${Object.keys(CHAINS).length} chains. Every line in a job log is a real read against the chain.</p>
+
+    <section>
+      <div class="sechead"><h2>How a job runs</h2><span>about ten seconds</span></div>
+      <div class="steps">
+        <div><h3>Bring it in</h3><p>Paste an address. It gets a ticket number that's the same for everyone, so a case link always opens the same case.</p></div>
+        <div><h3>Watch the work</h3><p>Bytecode, proxy slots, token metadata, owner, owner's bag and where the liquidity lives, read live.</p></div>
+        <div><h3>Take the report</h3><p>A risk score, plain-English findings, and a link to the verified source so you can check our work.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sechead"><h2>What the agents look for</h2><span>${SIG_COUNT} function signatures</span></div>
+      <div class="levers">${levers.map((l) => `
+        <div class="lever"><span class="sev ${l.sev}">${l.sev.toUpperCase()}</span>
+          <h3>${esc(l.title)}</h3><p>${esc(l.why)}</p></div>`).join("")}</div>
+    </section>
+
+    <section>
+      <div class="sechead"><h2>Limits</h2></div>
+      <p class="lede" style="font-size:15px">Selector matching can miss renamed functions and can't see what a function enforces internally (e.g. a fee cap). LP held in a locker contract shows as "not burned". On Robinhood Chain, pools and lockers are recognised by the names the explorer gives them, so an unlabelled pool counts as an ordinary contract. Treat a clean report as a starting point, not a guarantee.</p>
+    </section></div>`;
+}
+
+function compare(a, b) {
+  setNav("compare", "Compare");
+  const [ca, aa] = a || ["rh", ""];
+  const [cb, ab] = b || ["rh", ""];
   $("#view").innerHTML = `
-    <section class="pitch narrow how">
-      <h1 class="h1-sm">How the<br>receipt is made.</h1>
-      <p class="lede">Every line on a Backroom receipt is read from Robinhood Chain when you ask for it. Nothing is cached, guessed or signed.</p>
+    <div class="eyebrow">Compare</div><h1>Two tokens, side by side</h1>
+    <p class="lede">Run both through the workshop at once and see which one leaves the deployer fewer levers.</p>
+    <form id="cf" class="slip cmp-form"><div class="slip-head"><span class="label">Intake form 02 · Comparison</span></div><div class="slip-body">
+      <div class="row"><select id="ca" aria-label="First chain">${chainOptions(ca)}</select>
+        <input id="aa" value="${esc(aa)}" placeholder="0x… first contract" autocomplete="off" spellcheck="false" aria-label="First contract" /></div>
+      <div class="vs">VS</div>
+      <div class="row"><select id="cb" aria-label="Second chain">${chainOptions(cb)}</select>
+        <input id="ab" value="${esc(ab)}" placeholder="0x… second contract" autocomplete="off" spellcheck="false" aria-label="Second contract" /></div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:4px">
+        <button type="button" class="chip" id="sample">Try PONS vs USDG</button><button class="btn">Open both cases</button></div>
+      <p class="err" id="err"></p>
+    </div></form>
+    <div id="cmp"></div>`;
+  $("#sample").onclick = () => (location.hash = `#/compare/rh/${SAMPLES[0].addr}/rh/${SAMPLES[1].addr}`);
+  $("#cf").onsubmit = (e) => {
+    e.preventDefault();
+    const x = $("#aa").value.trim(), y = $("#ab").value.trim();
+    if (!isAddr(x) || !isAddr(y)) return ($("#err").textContent = "Both need to be contract addresses (0x + 40 hex characters).");
+    location.hash = `#/compare/${$("#ca").value}/${x}/${$("#cb").value}/${y}`;
+  };
+  if (!a || !CHAINS[ca] || !CHAINS[cb] || !isAddr(aa) || !isAddr(ab)) return;
 
-      <h2>1. What the deployer kept</h2>
-      <p>We look inside the token's compiled code for the functions that let someone change the rules after you buy. If we find one, the receipt says <b>KEPT</b>. If the owner has renounced, it says <b>kept, renounced</b>.</p>
-      <ul class="items">${RULES.map((rl) => `<li><span>${esc(KEPT_LABEL[rl.title] || rl.title)}</span><span>${esc(rl.why)}</span></li>`).join("")}</ul>
-
-      <h2>2. Where the supply sits</h2>
-      <p>From the Robinhood Chain explorer we read the top holders and sort them: DEX pools, lockers, burned, the biggest single wallet and the biggest unlabelled contract.</p>
-
-      <h2>3. The total</h2>
-      <p>Each flagged item gets a numbered footnote. The total is one of <b>No flags raised</b>, <b>Minor items</b>, <b>Items flagged</b> or <b>Read the fine print</b>. A token can't come out clean while something serious is flagged.</p>
-
-      <h2>What a receipt can't tell you</h2>
-      <p>It spots well-known functions by their standard names, so a contract that renames them on purpose can slip past. Pools and lockers are recognised by the explorer's labels. Bridged tokens show <b>mint</b> because the bridge mints them; that's normal for them. A short receipt is a good start, not a guarantee.</p>
-    </section>`;
+  const jobs = [[ca, aa], [cb, ab]];
+  $("#cmp").innerHTML = `<div class="cmp">${jobs.map(([c, ad], i) => `
+    <div class="col" id="col${i}"><div class="head"><div><div class="mono">${ticketFor(c, ad)} · ${CHAINS[c].name}</div>
+      <h2>${esc(short(ad))}</h2></div></div><div class="status" id="st${i}">Opening ticket…</div></div>`).join("")}</div>`;
+  const hash = location.hash;
+  Promise.allSettled(jobs.map(([c, ad], i) => inspect(c, ad, {
+    stage: (id, state) => { if (state === "run") { const st = $("#st" + i); if (st) st.textContent = STAGES.find((s) => s[0] === id)[1] + " working…"; } },
+    log: () => {},
+  }))).then((res) => {
+    if (location.hash !== hash) return;
+    const ok = res.map((r) => (r.status === "fulfilled" ? r.value : null));
+    const both = ok[0] && ok[1];
+    res.forEach((r, i) => {
+      const col = $("#col" + i);
+      if (!r.value) { col.querySelector(".status").innerHTML = `<span class="err">${esc(r.reason?.message || "Failed")}</span>`; return; }
+      const v = r.value;
+      const win = both && v.score < ok[1 - i].score;
+      col.classList.add(v.band);
+      if (win) col.classList.add("win");
+      col.innerHTML = `
+        <div class="head">${stamp(v, true)}<div><div class="mono">${v.ticket} · ${CHAINS[v.chain].name}</div>
+          <h2>${esc(v.symbol || short(v.addr))}</h2>${win ? `<span class="badge">Fewer levers</span>` : ""}</div></div>
+        <div class="kv"><span>Owner</span><span>${v.owner ? (v.owner === ZERO ? "Renounced" : esc(short(v.owner))) : "No owner()"}</span></div>
+        <div class="kv"><span>Owner's bag</span><span>${v.ownerPct != null ? v.ownerPct + "%" : "—"}</span></div>
+        ${v.holderView ? `<div class="kv"><span>In DEX pools</span><span>${v.poolPct}%</span></div>
+        <div class="kv"><span>Locked · burned</span><span>${v.lockedPct}% · ${v.burnedPct}%</span></div>
+        <div class="kv"><span>Top wallet</span><span>${v.topWallet ? v.topWallet.pct + "%" : "—"}</span></div>
+        <div class="kv"><span>Top other contract</span><span>${v.topContract ? v.topContract.pct + "%" : "—"}</span></div>`
+        : `<div class="kv"><span>Liquidity</span><span>${v.liquidity ? esc(v.liquidity) : v.pairChecked ? "No V2 pool" : "Not checked"}</span></div>
+        <div class="kv"><span>LP burned</span><span>${v.lpBurned != null ? v.lpBurned + "%" : v.pairChecked ? "—" : "Not checked"}</span></div>`}
+        <div class="kv"><span>Proxy</span><span>${v.proxy ? "Yes" : "No"}</span></div>
+        <div style="margin-top:14px">${v.findings.map((f) => `<div class="exhibit"><h3>${esc(f.title)} <span class="sev ${f.sev}">${f.good ? "in favour" : f.sev}</span></h3></div>`).join("") || `<p class="hint">No known levers matched.</p>`}</div>
+        <div class="actions" style="margin-top:12px"><a class="btn ghost" href="#/room/${v.chain}/${v.addr}">Open full case</a></div>`;
+    });
+    if (both && ok[0].score === ok[1].score) toast("Dead even: same risk score");
+  });
 }
 
 function route() {
