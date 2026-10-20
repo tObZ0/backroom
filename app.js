@@ -409,11 +409,18 @@ function setCount(el, n) {
 let pulse = null;
 function chainPulse() {
   if (pulse && Date.now() - pulse.at < 60000) return Promise.resolve(pulse);
-  return getJson(CHAINS.rh.api + "/stats").then((s) => (pulse = {
-    at: Date.now(),
-    blocks: Number(s.total_blocks), txs: Number(s.total_transactions),
-    addrs: Number(s.total_addresses), today: Number(s.transactions_today),
-  })).catch(() => null);
+  // the explorer's block total is a slow estimate, so the live block comes from the chain itself
+  return Promise.all([
+    getJson(CHAINS.rh.api + "/stats").catch(() => ({})),
+    rpc("rh", "eth_blockNumber", []).then((h) => parseInt(h, 16)).catch(() => null),
+  ]).then(([s, head]) => {
+    const blocks = head || Number(s.total_blocks);
+    if (!blocks) return null;
+    return (pulse = {
+      at: Date.now(), blocks,
+      txs: Number(s.total_transactions), addrs: Number(s.total_addresses), today: Number(s.transactions_today),
+    });
+  });
 }
 
 // ---------- the door, drawn large and swinging open ----------
