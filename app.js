@@ -23,7 +23,7 @@ const SAMPLES = [
 // The project token. Leave the address empty until launch: the homepage and the
 // token page then say it isn't live. Set it (and buyUrl, if any) and redeploy.
 const TOKEN = { symbol: "ROOM", address: "", buyUrl: "" };
-const X_URL = "https://x.com/backroomxy", X_HANDLE = "@backroomxy";
+const X_URL = "https://x.com/use_backroom", X_HANDLE = "@use_backroom";
 
 // Privileged functions worth knowing about. Selectors are computed from the
 // signatures at load time so there is no hand-copied hex to get wrong.
