@@ -376,6 +376,8 @@ function countUp(el) {
   el.dataset.done = "1";
   if (REDUCED) { el.textContent = compact(to); return; }
   const t0 = performance.now(), ms = 1500;
+  // background tabs pause animation frames; make sure the final number still lands
+  setTimeout(() => { el.textContent = compact(to); }, ms + 120);
   const tick = (t) => {
     const k = Math.min(1, (t - t0) / ms);
     el.textContent = compact(to * (1 - Math.pow(1 - k, 3)));
