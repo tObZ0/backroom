@@ -951,11 +951,21 @@ async function tokenPage() {
     </section>`;
   if (!live) return;
   $("#copyCa").onclick = () => navigator.clipboard?.writeText(TOKEN.address).then(() => toast("Address copied"), () => toast("Couldn't copy"));
-  const t = await getJson(CHAINS.rh.api + "/tokens/" + TOKEN.address).catch(() => null);
-  if (!t || !location.hash.startsWith("#/token")) return;
-  setCount($("#t-holders"), Number(t.holders_count));
-  if (t.total_supply) setCount($("#t-supply"), Number(t.total_supply) / 10 ** Number(t.decimals || 18));
-  if (Number(t.exchange_rate)) $("#t-price").textContent = usd(Number(t.exchange_rate));
+  // supply comes straight from the chain; holders and price wait for the explorer to index a new token
+  const [t, sup, dec] = await Promise.all([
+    getJson(CHAINS.rh.api + "/tokens/" + TOKEN.address).catch(() => null),
+    call("rh", TOKEN.address, "totalSupply()"),
+    call("rh", TOKEN.address, "decimals()"),
+  ]);
+  if (!location.hash.startsWith("#/token")) return;
+  const supply = word(sup), decimals = word(dec);
+  if (supply != null) setCount($("#t-supply"), Number(supply) / 10 ** Number(decimals ?? 18n));
+  const holders = Number(t?.holders_count);
+  if (holders > 0) setCount($("#t-holders"), holders);
+  else Object.assign($("#t-holders"), { textContent: "indexing…", className: "wait" });
+  const price = Number(t?.exchange_rate);
+  if (price) $("#t-price").textContent = usd(price);
+  else Object.assign($("#t-price"), { textContent: "not listed yet", className: "wait" });
 }
 
 // ---------- shell: routing, page entrance, phone menu ----------
